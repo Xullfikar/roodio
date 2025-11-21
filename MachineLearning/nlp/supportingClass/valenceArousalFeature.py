@@ -1,7 +1,3 @@
-# ========================================================================
-# valenceArousal.py — FINAL VERSION (NO ROW MISMATCH, COMPLETE FEATURES)
-# ========================================================================
-
 import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -10,11 +6,8 @@ import multiprocessing
 from functools import partial
 
 
-# ================================================================
-# GLOBAL FUNCTION (WAJIB untuk multiprocessing)
-# ================================================================
 def extract_vad_single(text, vad_dict):
-    """Extractor NON-OOP, aman untuk multiprocessing."""
+    """Extract VAD features for a single text."""
     if not text or not isinstance(text, str) or text.strip() == "":
         return [0.5, 0.5, 0.5, 0.0, 0]
 
@@ -46,24 +39,19 @@ def extract_vad_single(text, vad_dict):
         return [0.5, 0.5, 0.5, 0.0, 0]
 
 
-# ================================================================
-# MAIN CLASS
-# ================================================================
 class VADFeatureExtractor(BaseEstimator, TransformerMixin):
+    """Extract Valence-Arousal-Dominance features from text using lexicon."""
 
     def __init__(self, vad_lexicon_path, lyrics_column='cleaned_lyrics',
                  n_jobs=-1, batch_size=1000):
-
         self.vad_lexicon_path = vad_lexicon_path
         self.lyrics_column = lyrics_column
         self.n_jobs = multiprocessing.cpu_count() if n_jobs == -1 else n_jobs
         self.batch_size = batch_size
         self.vad_dict = self._load_vad_lexicon()
 
-    # ------------------------------------------------------------
     def _load_vad_lexicon(self):
-        print("📚 Loading VAD lexicon...")
-
+        """Load VAD lexicon from TSV file."""
         df_vad = pd.read_csv(
             self.vad_lexicon_path,
             delimiter='\t',
@@ -81,22 +69,18 @@ class VADFeatureExtractor(BaseEstimator, TransformerMixin):
             for _, row in df_vad.iterrows()
         }
 
-        print(f"✅ VAD lexicon loaded: {len(vad_dict)} terms")
         return vad_dict
 
-    # ------------------------------------------------------------
     def fit(self, X, y=None):
+        """Fit method for sklearn compatibility."""
         return self
 
-    # ------------------------------------------------------------
     def transform(self, X, y=None):
+        """Transform text data to VAD features."""
         df = X.copy()
-
-        print("🎯 Extracting VAD features...")
-
         series = df[self.lyrics_column]
 
-        # Parallel mode
+        # Extract features
         if len(series) > self.batch_size and self.n_jobs > 1:
             features_list = self._parallel_extract(series)
         else:
@@ -105,7 +89,7 @@ class VADFeatureExtractor(BaseEstimator, TransformerMixin):
                 for text in series
             ]
 
-        # Buat dataframe fitur
+        # Create feature DataFrame
         feature_df = pd.DataFrame(
             features_list,
             columns=['valence', 'arousal', 'dominance', 'coverage_ratio', 'n_matched_words']
@@ -119,19 +103,15 @@ class VADFeatureExtractor(BaseEstimator, TransformerMixin):
             'n_matched_words': 'int32'
         })
 
-        # Gabung ke DF original
+        # Combine with original data
         df = pd.concat([df.reset_index(drop=True),
                         feature_df.reset_index(drop=True)],
                        axis=1)
 
-        self._print_stats(feature_df)
-
         return df
 
-    # ------------------------------------------------------------
     def _parallel_extract(self, series):
-        print(f"⚡ Using parallel processing with {self.n_jobs} workers...")
-
+        """Extract features in parallel for large datasets."""
         chunks = [
             series[i:i + self.batch_size]
             for i in range(0, len(series), self.batch_size)
@@ -147,16 +127,3 @@ class VADFeatureExtractor(BaseEstimator, TransformerMixin):
                 results.extend(chunk_result)
 
         return results
-
-    # ------------------------------------------------------------
-    def _print_stats(self, fdf):
-        print("✅ VAD features extracted")
-        print(f"   Valence range: [{fdf['valence'].min():.3f}, {fdf['valence'].max():.3f}]")
-        print(f"   Arousal range: [{fdf['arousal'].min():.3f}, {fdf['arousal'].max():.3f}]")
-        print(f"   Dominance range: [{fdf['dominance'].min():.3f}, {fdf['dominance'].max():.3f}]")
-        print(f"   Avg coverage: {fdf['coverage_ratio'].mean():.3f}")
-        print(f"   Avg matched words: {fdf['n_matched_words'].mean():.2f}")
-
-        nom = (fdf['n_matched_words'] == 0).sum()
-        if nom > 0:
-            print(f"⚠️ {nom} texts ({nom/len(fdf)*100:.1f}%) have no VAD matches")
